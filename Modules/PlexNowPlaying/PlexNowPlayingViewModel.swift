@@ -5,7 +5,7 @@
 
 import Foundation
 import Defaults
-import Combine   // <- Necesario para Defaults.publisher y AnyCancellable
+import Combine
 
 public enum FactsState: Sendable, Equatable {
     case idle
@@ -187,7 +187,7 @@ public final class PlexNowPlayingViewModel: ObservableObject {
             retriedForAlbum.remove(albumKey)
             state = .ready(facts)
         } else {
-            state = factsCache[albumKey].map { .ready($0) } ?? .error("No se pudo obtener información")
+            state = factsCache[albumKey].map { .ready($0) } ?? .error("Information not available")
         }
     }
 }

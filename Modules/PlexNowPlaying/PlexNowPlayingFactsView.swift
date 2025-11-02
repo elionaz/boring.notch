@@ -31,20 +31,20 @@ public struct PlexNowPlayingFactsView: View {
                         .font(.headline)
 
                     // Campos básicos
-                    factRow("Lanzamiento", facts.releaseDate ?? "—")
-                    factRow("Sello", facts.label ?? "—")
+                    factRow("Release Date", facts.releaseDate ?? "—")
+                    factRow("Label", facts.label ?? "—")
                     if let country = facts.country {
-                        factRow("País", country)
+                        factRow("Country", country)
                     }
                     if let genres = facts.genres, !genres.isEmpty {
-                        factRow("Género", genres.joined(separator: ", "))
+                        factRow("Generes", genres.joined(separator: ", "))
                     }
 
                     if !facts.producers.isEmpty {
-                        factRow("Productores", facts.producers.joined(separator: ", "))
+                        factRow("Producers", facts.producers.joined(separator: ", "))
                     }
                     if !facts.personnel.isEmpty {
-                        factRow("Créditos", facts.personnel.joined(separator: ", "))
+                        factRow("Credits", facts.personnel.joined(separator: ", "))
                     }
 
                     // Notas (si existen)
@@ -60,7 +60,7 @@ public struct PlexNowPlayingFactsView: View {
                     // Fuentes (Discogs.com clicable)
                     if let link = firstValidURL(from: facts.sources) {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("Fuentes:")
+                            Text("Source:")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.secondary)
                                 .frame(minWidth: 110, alignment: .leading)
@@ -72,7 +72,7 @@ public struct PlexNowPlayingFactsView: View {
                         }
                     }
                 } else {
-                    Text("Sin información del álbum")
+                    Text("Information not available")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -98,7 +98,7 @@ public struct PlexNowPlayingFactsView: View {
             return np.album
         }
         // Fallback si no hay álbum disponible aún
-        return "Detalles del álbum"
+        return "Album details"
     }
 
     // MARK: - Helpers UI

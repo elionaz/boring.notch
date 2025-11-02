@@ -43,30 +43,30 @@ public struct ConfigView: View {
             SecureField("Plex Token", text: $plexToken)
                 .textTweaksForCurrentPlatform()
 
-            Button("Probar conexión / Reiniciar poller") {
+            Button("Test connection / Restart poller") {
                 startOrRestartPlex()
             }
         }
     }
 
     private var discogsSection: some View {
-        Section(header: Text("Discogs (enriquecimiento)")) {
-            Toggle("Habilitar Discogs", isOn: $enableDiscogs)
+        Section(header: Text("Discogs (Enricher)")) {
+            Toggle("Enable Discogs", isOn: $enableDiscogs)
 
             SecureField("Discogs Token", text: $discogsToken)
                 .textTweaksForCurrentPlatform()
 
-            TextField("Enricher URL (opcional)", text: $enricherURL)
+            TextField("Local Enricher URL (opcional)", text: $enricherURL)
                 .textTweaksForCurrentPlatform()
 
-            Button("Refrescar datos del álbum") {
+            Button("Refresh album data") {
                 Task { await vm.forceRefresh() }
             }
         }
     }
 
     private var statusSection: some View {
-        Section(header: Text("Estado")) {
+        Section(header: Text("Status")) {
             HStack {
                 Text("Now Playing")
                 Spacer()
@@ -105,8 +105,8 @@ private extension FactsState {
     var label: String {
         switch self {
         case .idle:    return "Idle"
-        case .loading: return "Cargando"
-        case .ready:   return "Listo"
+        case .loading: return "Loading"
+        case .ready:   return "Ready"
         case .error:   return "Error"
         }
     }

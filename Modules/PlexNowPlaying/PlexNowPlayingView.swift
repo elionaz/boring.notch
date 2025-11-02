@@ -45,14 +45,14 @@ public struct PlexNowPlayingView: View {
                 HStack(spacing: 8) {
                     switch vm.state {
                     case .idle:
-                        Label("Cargando…", systemImage: "hourglass")
+                        Label("Waiting 🎧", systemImage: "hourglass")
                             .foregroundStyle(.secondary)
                             .font(.footnote)
                     case .loading:
                         ProgressView()
                             .scaleEffect(0.8)
                     case .ready:
-                        Label("Listo", systemImage: "checkmark.circle.fill")
+                        Label("Ready 🎧", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                             .font(.footnote)
                     case .error:
@@ -64,9 +64,9 @@ public struct PlexNowPlayingView: View {
             } else {
                 // Sin reproducción
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Sin reproducción")
+                    Text("No music playing")
                         .font(.title3.weight(.semibold))
-                    Text("Inicia playback en Plexamp para ver detalles.")
+                    Text("Starting playback in Plexamp to see details.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
