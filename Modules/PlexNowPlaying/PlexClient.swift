@@ -1,23 +1,35 @@
 //
 //  PlexClient.swift
-//  BoringNotch (Plex Module)
-//
-//  Cliente simple para consultar `/:/sessions` del PMS y
-//  actualizar el ViewModel con la pista en reproducción.
-//  Incluye logs detallados con timestamp.
+//  boringNotch (Plex Module)
 //
 
 import Foundation
+
+// Snapshot mínimo de lo que está sonando
+public struct NowPlaying: Sendable, Equatable {
+    public let artist: String
+    public let album: String
+    public let albumMBIDs: [String]?
+    public init(artist: String, album: String, albumMBIDs: [String]? = nil) {
+        self.artist = artist
+        self.album = album
+        self.albumMBIDs = albumMBIDs
+    }
+}
 
 public final class PlexClient: NSObject {
     public let baseURL: URL
     public let token: String
     private var pollTimer: Timer?
 
-    /// Activa/imprime logs detallados a la consola de Xcode.
-    private let debugLogging: Bool
+    /// Cuando cambia la canción o cambia pausa⟷play.
+    /// (artist, album, isPaused)
+    public var onNowPlayingChange: ((NowPlaying?, Bool) -> Void)?
 
-    public init(baseURL: URL, token: String, debugLogging: Bool = false) {
+    /// Activa logs detallados
+    public var debugLogging: Bool = true
+
+    public init(baseURL: URL, token: String, debugLogging: Bool = true) {
         self.baseURL = baseURL
         self.token = token
         self.debugLogging = debugLogging
@@ -26,8 +38,11 @@ public final class PlexClient: NSObject {
 
     deinit { stopPolling() }
 
+    // MARK: - Poll
+
     public func startPolling(interval: TimeInterval = 5.0) {
         stopPolling()
+        if debugLogging { print("🛰️ [PlexClient] startPolling interval=\(interval)s  host=\(baseURL.host ?? "?")") }
         DispatchQueue.main.async {
             self.pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
                 Task { await self?.pollOnce() }
@@ -37,12 +52,12 @@ public final class PlexClient: NSObject {
     }
 
     public func stopPolling() {
+        if debugLogging { print("🛰️ [PlexClient] stopPolling()") }
         pollTimer?.invalidate()
         pollTimer = nil
     }
 
-    // MARK: - Lectura de sesiones
-
+    /// Un tick “manual” (útil desde forceRefresh del VM).
     public func pollOnce() async {
         guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return }
         comps.path = "/status/sessions"
@@ -53,9 +68,7 @@ public final class PlexClient: NSObject {
         req.httpMethod = "GET"
         req.setValue("application/xml", forHTTPHeaderField: "Accept")
 
-        if debugLogging {
-            print("🛰️ [PlexClient] GET \(baseURL.host ?? ""):/status/sessions  token=\(mask(token))")
-        }
+        if debugLogging { print("🛰️ [PlexClient] GET \(url.absoluteString)") }
 
         do {
             let (data, response) = try await URLSession.shared.data(for: req)
@@ -71,27 +84,28 @@ public final class PlexClient: NSObject {
 
             guard code == 200 else { return }
 
-            if let track = PlexNowPlayingXML.parseFirstPlayingTrack(from: data) {
+            let parsed = PlexNowPlayingXML.parseFirstPlayingTrack(from: data)
+            let isPaused = PlexNowPlayingXML.detectPaused(from: data)
+
+            if let t = parsed {
+                let np = NowPlaying(artist: t.artist, album: t.album, albumMBIDs: t.mbids)
                 if debugLogging {
-                    print("🎵 [PlexClient] Track detectado: artist=\(track.artist)  album=\(track.album)  title=\(track.title)")
+                    print("🎵 [PlexClient] nowPlaying=\(np.artist) — \(np.album)  paused=\(isPaused)")
                 }
-                await PlexNowPlayingViewModel.shared.setNowPlaying(
-                    NowPlaying(artist: track.artist, album: track.album, albumMBIDs: [])
-                )
-            } else if debugLogging {
-                print("⚠️ [PlexClient] No se detectó <Player state=\"playing\"> en /status/sessions")
+                onNowPlayingChange?(np, isPaused)
+            } else {
+                if debugLogging { print("⚠️ [PlexClient] No playing track") }
+                onNowPlayingChange?(nil, true)
             }
 
         } catch {
-            if debugLogging {
-                print("❌ [PlexClient] Error en request /status/sessions: \(error)")
-            }
+            if debugLogging { print("❌ [PlexClient] /status/sessions error: \(error)") }
         }
     }
 
-    // MARK: - Modelo mínimo + XML parsing
+    // MARK: - XML parsing
 
-    private struct PlayingTrack { let title: String; let artist: String; let album: String }
+    private struct PlayingTrack { let title: String; let artist: String; let album: String; let mbids: [String]? }
 
     private enum PlexNowPlayingXML {
         static func parseFirstPlayingTrack(from data: Data) -> PlayingTrack? {
@@ -101,11 +115,20 @@ public final class PlexClient: NSObject {
             _ = parser.parse()
             return delegate.firstPlayingTrack
         }
+        static func detectPaused(from data: Data) -> Bool {
+            let d = SessionsParserDelegate()
+            let p = XMLParser(data: data)
+            p.delegate = d
+            _ = p.parse()
+            return d.currentTrackIsPaused
+        }
 
         private final class SessionsParserDelegate: NSObject, XMLParserDelegate {
             var firstPlayingTrack: PlayingTrack?
+            var currentTrackIsPaused = true
+
             private var insideTrack = false
-            private var currentTrack: (title: String?, artist: String?, album: String?) = (nil, nil, nil)
+            private var currentTrack: (title: String?, artist: String?, album: String?, mbids: [String]?) = (nil, nil, nil, nil)
             private var currentTrackHasPlayingPlayer = false
 
             func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?, qualifiedName qName: String?, attributes: [String : String] = [:]) {
@@ -116,9 +139,17 @@ public final class PlexClient: NSObject {
                     currentTrack.title  = attributes["title"]
                     currentTrack.artist = attributes["grandparentTitle"] ?? attributes["artist"]
                     currentTrack.album  = attributes["parentTitle"] ?? attributes["album"]
+                    // Si Plex expone GUIDs con MBIDs en atributos/guid (puede no estar):
+                    if let guid = attributes["guid"], guid.contains("musicbrainz") {
+                        // ejemplo: "com.plexapp.agents.music:mbid://album/xxxxx?lang=en"
+                        let comps = guid.split(separator: "/").map(String.init)
+                        let last = comps.last ?? ""
+                        currentTrack.mbids = [last]
+                    }
                 } else if insideTrack && name == "Player" {
-                    if let state = attributes["state"], state.lowercased() == "playing" {
-                        currentTrackHasPlayingPlayer = true
+                    if let state = attributes["state"] {
+                        if state.lowercased() == "playing" { currentTrackHasPlayingPlayer = true; currentTrackIsPaused = false }
+                        if state.lowercased() == "paused"  { currentTrackIsPaused = true }
                     }
                 }
             }
@@ -128,24 +159,16 @@ public final class PlexClient: NSObject {
                 if name == "Track" && insideTrack {
                     defer {
                         insideTrack = false
-                        currentTrack = (nil, nil, nil)
+                        currentTrack = (nil, nil, nil, nil)
                         currentTrackHasPlayingPlayer = false
                     }
                     guard currentTrackHasPlayingPlayer,
                           let artist = currentTrack.artist, !artist.isEmpty,
                           let album  = currentTrack.album,  !album.isEmpty,
                           let title  = currentTrack.title,  !title.isEmpty else { return }
-                    firstPlayingTrack = PlayingTrack(title: title, artist: artist, album: album)
+                    firstPlayingTrack = PlayingTrack(title: title, artist: artist, album: album, mbids: currentTrack.mbids)
                 }
             }
         }
-    }
-
-    // Enmascara el token para logs
-    private func mask(_ t: String) -> String {
-        guard t.count > 6 else { return "•••" }
-        let head = t.prefix(3)
-        let tail = t.suffix(3)
-        return "\(head)••••••\(tail)"
     }
 }

@@ -1,6 +1,6 @@
 //
 //  PlexNowPlayingView.swift
-//  BoringNotch (Plex Module)
+//  boringNotch (Plex Module)
 //
 
 import SwiftUI
@@ -12,53 +12,66 @@ public struct PlexNowPlayingView: View {
     public init() {}
 
     public var body: some View {
-        // Grid 2 columnas: izquierda Now Playing, derecha Facts/espera
         HStack(alignment: .top, spacing: 16) {
-            leftNowPlaying
+            nowPlayingCompact()
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // ✅ Facts/espera se resuelven dentro del propio FactsView (usa el VM compartido)
+            // Columna derecha: detalles del álbum (facts)
             PlexNowPlayingFactsView()
-                .padding(.leading, 16)   // separación extra entre columnas
-                .padding(.trailing, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 12)            // evita corte contra el borde inferior del notch
+        .padding(.vertical, 6)
     }
 
-    // MARK: - Columna izquierda (tu UI de Now Playing compacta)
-    // Si ya tienes una vista propia del player, colócala aquí.
+    // MARK: - Subviews
+
     @ViewBuilder
-    private var leftNowPlaying: some View {
-        switch vm.state {
-        case .ready(let np, _):
-            VStack(alignment: .leading, spacing: 6) {
-                // Títulos básicos como placeholder (sustituye por tu UI de player)
+    private func nowPlayingCompact() -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let np = vm.snapshotNowPlaying {
+                // Título (usamos el nombre del álbum) y artista
                 Text(np.album)
-                    .font(.title3).bold()
+                    .font(.title3.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
                 Text(np.artist)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-            }
-        case .loading, .idle:
-            // Placeholder mientras no hay reproducción
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Esperando reproducción…")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-            }
-        case .error(let message):
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Error")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                Text(message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                // Estado de facts
+                HStack(spacing: 8) {
+                    switch vm.state {
+                    case .idle:
+                        Label("Waiting 🎧", systemImage: "hourglass")
+                            .foregroundStyle(.secondary)
+                            .font(.footnote)
+                    case .loading:
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    case .ready:
+                        Label("Ready 🎧", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.footnote)
+                    case .error:
+                        Label("Error", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.footnote)
+                    }
+                }
+            } else {
+                // Sin reproducción
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("No music playing")
+                        .font(.title3.weight(.semibold))
+                    Text("Starting playback in Plexamp to see details.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
-

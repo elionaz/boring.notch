@@ -1,110 +1,193 @@
 //
 //  PlexNowPlayingViewModel.swift
-//  BoringNotch (Plex Module)
+//  boringNotch (Plex Module)
 //
 
 import Foundation
+import Defaults
 import Combine
 
-/// Modelo mínimo para representar lo que está sonando.
-public struct NowPlaying: Sendable {
-    public let artist: String
-    public let album: String
-    public let albumMBIDs: [String]?
-    public init(artist: String, album: String, albumMBIDs: [String]? = nil) {
-        self.artist = artist
-        self.album = album
-        self.albumMBIDs = albumMBIDs
-    }
+public enum FactsState: Sendable, Equatable {
+    case idle
+    case loading
+    case ready(AlbumFacts)
+    case error(String)
 }
 
+@MainActor
 public final class PlexNowPlayingViewModel: ObservableObject {
 
-    /// Singleton para poder invocarlo desde `PlexClient`.
     public static let shared = PlexNowPlayingViewModel()
 
-    // Estado que consume la UI
-    public enum State {
-        case idle
-        case loading
-        case error(String)
-        case ready(NowPlaying, AlbumFacts)
+    // Salidas
+    @Published public private(set) var state: FactsState = .idle
+    @Published public private(set) var snapshotNowPlaying: NowPlaying?
+
+    // Plex
+    private var plex: PlexClient?
+    private var isPollingActive = false
+
+    // Bootstrap
+    private var bootstrapTask: Task<Void, Never>?
+    private var lastBootstrapCredentials: (String, String)?
+
+    // Facts
+    private var isPaused: Bool = true
+    private var lastAlbumKey: String?
+    private var factsCache: [String: AlbumFacts] = [:]
+    private var retriedForAlbum: Set<String> = []
+
+    // Combine
+    private var cancellables: Set<AnyCancellable> = []
+
+    // Init
+    private init() {
+        // Arranca bootstrap al iniciar y cuando cambien las credenciales
+        Defaults.publisher(.pmsURL)
+            .merge(with: Defaults.publisher(.plexToken))
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.startBootstrapLoopIfNeeded() }
+            }
+            .store(in: &cancellables)
+
+        startBootstrapLoopIfNeeded()
     }
 
-    @Published public private(set) var state: State = .idle
+    // MARK: - Bootstrap automático (sin UI)
 
-    // Cliente del enricher (se inicializa leyendo la URL guardada en UserDefaults)
-    private var factsClient: FactsClient
+    private func startBootstrapLoopIfNeeded() {
+        guard !isPollingActive else { return }
 
-    // Último NP detectado
-    private var currentNowPlaying: NowPlaying?
+        let urlStr = Defaults[.pmsURL].trimmingCharacters(in: .whitespacesAndNewlines)
+        let tok    = Defaults[.plexToken].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !urlStr.isEmpty, !tok.isEmpty else {
+            stopBootstrapLoop()
+            return
+        }
 
-    // Identidad simple de la pista para onChange
-    public var trackIdentity: String? {
-        guard let np = currentNowPlaying else { return nil }
-        return "\(np.artist)|\(np.album)"
-    }
+        // Evita reiniciar la misma tarea si las credenciales no cambiaron
+        let creds = (urlStr, tok)
+        if let last = lastBootstrapCredentials, last == creds, bootstrapTask != nil { return }
+        lastBootstrapCredentials = creds
 
-    /// Inicializa con FactsClient apuntando a ENRICHER_URL (o `http://127.0.0.1:5173` por defecto)
-    public init() {
-        let base = URL(string: UserDefaults.standard.string(forKey: "ENRICHER_URL") ?? "http://127.0.0.1:5173")!
-        self.factsClient = FactsClient(apiBase: base, debugLogging: true)
-        print("🔧 [VM] FactsClient base=\(base.absoluteString)")
-    }
+        stopBootstrapLoop() // cancela si existía
+        print("🧭 [VM] Bootstrap: armado. Esperando playback…")
 
-    // MARK: - Flujo principal
-
-    /// Setea el “Now Playing” actual y dispara un refresh
-    @MainActor
-    public func setNowPlaying(_ np: NowPlaying) async {
-        currentNowPlaying = np
-        let mbidsCount = np.albumMBIDs?.count ?? 0
-        print("🎯 [VM] setNowPlaying artist='\(np.artist)' album='\(np.album)' mbids=\(mbidsCount)")
-        await refresh()
-    }
-
-    /// Fuerza un refresh usando el `currentNowPlaying`
-    @MainActor
-    public func refresh() async {
-        guard let np = currentNowPlaying else { return }
-        state = .loading
-        print("🧠 [VM] enrich → artist='\(np.artist)' album='\(np.album)'")
-
-        do {
-            let facts = try await factsClient.enrich(
-                artist: np.artist,
-                album: np.album,
-                albumMBIDs: np.albumMBIDs ?? []
-            )
-            print("✅ [VM] enrich OK  label=\(facts.label ?? "-")  date=\(facts.releaseDate ?? "-")  sources=\(facts.sources.count)")
-            state = .ready(np, facts)
-        } catch {
-            print("❌ [VM] enrich error: \(error)")
-            state = .error(error.localizedDescription)
+        bootstrapTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled && !self.isPollingActive {
+                self.configureClientIfNeeded(urlStr: urlStr, token: tok)
+                await self.plex?.pollOnce() // toque ligero; si hay playback recibiremos NowPlaying
+                try? await Task.sleep(nanoseconds: 7_000_000_000) // 7s
+            }
         }
     }
 
-    // MARK: - Polling de Plex
+    private func stopBootstrapLoop() {
+        bootstrapTask?.cancel()
+        bootstrapTask = nil
+    }
 
-    // Guarda referencia fuerte; si no, el Timer interno se invalida.
-    private var plexClient: PlexClient?
+    private func configureClientIfNeeded(urlStr: String, token: String) {
+        if plex != nil { return }
+        guard let url = URL(string: urlStr) else { return }
 
-    @MainActor
+        let client = PlexClient(baseURL: url, token: token, debugLogging: true)
+        client.onNowPlayingChange = { [weak self] np, paused in
+            Task { @MainActor in self?.handleNowPlayingUpdate(now: np, paused: paused) }
+        }
+        plex = client
+        print("🧭 [VM] PlexClient configurado (bootstrap)")
+    }
+
+    // MARK: - API pública
+
+    /// Botón “Probar conexión / Reiniciar poller”
     public func startPlexPolling(baseURL: URL, token: String) {
-        plexClient?.stopPolling()
-        plexClient = PlexClient(baseURL: baseURL, token: token, debugLogging: true)
-        plexClient?.startPolling(interval: 5)
-        print("▶️ [VM] startPlexPolling base=\(baseURL.absoluteString)")
+        stopBootstrapLoop()
+        let client = PlexClient(baseURL: baseURL, token: token, debugLogging: true)
+        client.onNowPlayingChange = { [weak self] np, paused in
+            Task { @MainActor in self?.handleNowPlayingUpdate(now: np, paused: paused) }
+        }
+        plex = client
+        client.stopPolling()
+        client.startPolling(interval: 5.0)
+        isPollingActive = true
+        print("🧭 [VM] Poller arrancado explícitamente")
     }
 
-    @MainActor
-    public func stopPlexPolling() {
-        plexClient?.stopPolling()
-        plexClient = nil
-        print("⏹ [VM] stopPlexPolling")
+    public func forceRefresh() async {
+        guard let np = snapshotNowPlaying else {
+            await plex?.pollOnce()
+            return
+        }
+        await fetchFactsIfNeeded(for: np, reason: .forced)
     }
 
-    deinit {
-        plexClient?.stopPolling()
+    // MARK: - Manejo de NowPlaying
+
+    private enum RefreshReason { case firstSeen, trackChange, resumePlay, forced }
+
+    private func handleNowPlayingUpdate(now: NowPlaying?, paused: Bool) {
+        snapshotNowPlaying = now
+        isPaused = paused
+
+        guard let np = now else { return }
+
+        // Primer NowPlaying → inicia loop y apaga bootstrap
+        if !isPollingActive {
+            plex?.startPolling(interval: 5.0)
+            isPollingActive = true
+            stopBootstrapLoop()
+            print("▶️ [VM] NowPlaying detectado → iniciando loop de polling")
+        }
+
+        let albumKey = "\(np.artist)|\(np.album)"
+        let firstTime = (lastAlbumKey == nil)
+        let albumChanged = (albumKey != lastAlbumKey)
+        let resumed = (state == .loading && !paused)
+
+        lastAlbumKey = albumKey
+
+        if firstTime {
+            Task { await fetchFactsIfNeeded(for: np, reason: .firstSeen) }
+            return
+        }
+        if albumChanged {
+            Task { await fetchFactsIfNeeded(for: np, reason: .trackChange) }
+            return
+        }
+        if resumed {
+            Task { await fetchFactsIfNeeded(for: np, reason: .resumePlay) }
+            return
+        }
+
+        if case .loading = state, !retriedForAlbum.contains(albumKey) {
+            retriedForAlbum.insert(albumKey)
+            Task { await fetchFactsIfNeeded(for: np, reason: .trackChange) }
+        }
+    }
+
+    // MARK: - Facts
+
+    private func fetchFactsIfNeeded(for now: NowPlaying, reason: RefreshReason) async {
+        if isPaused && reason != .forced { return }
+
+        let albumKey = "\(now.artist)|\(now.album)"
+
+        if let cached = factsCache[albumKey] {
+            state = .ready(cached)
+            if reason != .forced { return }
+        } else {
+            state = .loading
+        }
+
+        if let facts = await FactsClient.shared.fetchFacts(artist: now.artist, album: now.album) {
+            factsCache[albumKey] = facts
+            retriedForAlbum.remove(albumKey)
+            state = .ready(facts)
+        } else {
+            state = factsCache[albumKey].map { .ready($0) } ?? .error("Information not available")
+        }
     }
 }
