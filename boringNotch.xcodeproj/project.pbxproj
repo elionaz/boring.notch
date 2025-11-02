@@ -113,6 +113,8 @@
 		B1D6FD432C6603730015F173 /* SoftwareUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D6FD422C6603730015F173 /* SoftwareUpdater.swift */; };
 		B1FEB4992C7686630066EBBC /* PanGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1FEB4982C7686630066EBBC /* PanGesture.swift */; };
 		D420B57E2EB7D6A80043C162 /* PlexNowPlayingContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D420B57D2EB7D6A70043C162 /* PlexNowPlayingContainerView.swift */; };
+		D420B5812EB7EC380043C162 /* CalendarOverlayRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D420B5802EB7EC370043C162 /* CalendarOverlayRoot.swift */; };
+		D420B5832EB7EDA50043C162 /* CalendarOverlayGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D420B5822EB7EDA40043C162 /* CalendarOverlayGate.swift */; };
 		D477656A2EB299EF003D44B8 /* PlexNowPlayingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D47765692EB299EF003D44B8 /* PlexNowPlayingViewModel.swift */; };
 		D477656B2EB299EF003D44B8 /* FactsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D47765662EB299EF003D44B8 /* FactsClient.swift */; };
 		D477656C2EB299EF003D44B8 /* PlexNowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D47765682EB299EF003D44B8 /* PlexNowPlayingView.swift */; };
@@ -250,6 +252,8 @@
 		B1ECFA032C6FE58A002ACD87 /* CoreDisplay.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreDisplay.framework; path = ../../../../../System/Library/Frameworks/CoreDisplay.framework; sourceTree = "<group>"; };
 		B1FEB4982C7686630066EBBC /* PanGesture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanGesture.swift; sourceTree = "<group>"; };
 		D420B57D2EB7D6A70043C162 /* PlexNowPlayingContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexNowPlayingContainerView.swift; sourceTree = "<group>"; };
+		D420B5802EB7EC370043C162 /* CalendarOverlayRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarOverlayRoot.swift; sourceTree = "<group>"; };
+		D420B5822EB7EDA40043C162 /* CalendarOverlayGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarOverlayGate.swift; sourceTree = "<group>"; };
 		D47765652EB299EF003D44B8 /* ConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigView.swift; sourceTree = "<group>"; };
 		D47765662EB299EF003D44B8 /* FactsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FactsClient.swift; sourceTree = "<group>"; };
 		D47765672EB299EF003D44B8 /* PlexClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexClient.swift; sourceTree = "<group>"; };
@@ -630,6 +634,15 @@
 			path = Tips;
 			sourceTree = "<group>";
 		};
+		D420B57F2EB7EC280043C162 /* Calendar */ = {
+			isa = PBXGroup;
+			children = (
+				D420B5822EB7EDA40043C162 /* CalendarOverlayGate.swift */,
+				D420B5802EB7EC370043C162 /* CalendarOverlayRoot.swift */,
+			);
+			path = Calendar;
+			sourceTree = "<group>";
+		};
 		D477657B2EB47EAF003D44B8 /* Core */ = {
 			isa = PBXGroup;
 			children = (
@@ -649,6 +662,7 @@
 		D4C369552EB298040027FB96 /* Modules */ = {
 			isa = PBXGroup;
 			children = (
+				D420B57F2EB7EC280043C162 /* Calendar */,
 				D477657B2EB47EAF003D44B8 /* Core */,
 				D4FD75192EB298C900D96F97 /* PlexNowPlaying */,
 			);
@@ -777,6 +791,7 @@
 				147163982C5D35B70068B555 /* MusicVisualizer.swift in Sources */,
 				11CC44A22CEE614100C7244B /* BoringViewCoordinator.swift in Sources */,
 				B186543C2C6F49AE000B926A /* ShortcutConstants.swift in Sources */,
+				D420B5812EB7EC380043C162 /* CalendarOverlayRoot.swift in Sources */,
 				11A45C792E34E63100CEB175 /* MediaChecker.swift in Sources */,
 				B1D365CE2C6A979C0047BDBC /* LiveActivityModifier.swift in Sources */,
 				11CFC65B2E097E9D00748C80 /* WelcomeView.swift in Sources */,
@@ -847,6 +862,7 @@
 				11CFC6652E09C7B300748C80 /* OnboardingFinishView.swift in Sources */,
 				507266DB2C908E2E00A2D00D /* HoverButton.swift in Sources */,
 				1471A8592C6281BD0058408D /* BoringNotchWindow.swift in Sources */,
+				D420B5832EB7EDA50043C162 /* CalendarOverlayGate.swift in Sources */,
 				147CB9572C8CCC980094C254 /* BoringExtensionManager.swift in Sources */,
 				14CEF4182C5CAED300855D72 /* ContentView.swift in Sources */,
 				9A987A0D2C73CA66005CA465 /* NotchShelfView.swift in Sources */,

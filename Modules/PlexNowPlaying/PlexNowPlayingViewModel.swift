@@ -22,6 +22,8 @@ public final class PlexNowPlayingViewModel: ObservableObject {
     // Salidas
     @Published public private(set) var state: FactsState = .idle
     @Published public private(set) var snapshotNowPlaying: NowPlaying?
+    /// ✅ Indica si hay reproducción activa (hay track y NO está pausado)
+    @Published public private(set) var hasActivePlayback: Bool = false
 
     // Plex
     private var plex: PlexClient?
@@ -42,7 +44,7 @@ public final class PlexNowPlayingViewModel: ObservableObject {
 
     // Init
     private init() {
-        // Arranca bootstrap al iniciar y cuando cambien las credenciales
+        // Re-bootstrap en cuanto cambien las credenciales
         Defaults.publisher(.pmsURL)
             .merge(with: Defaults.publisher(.plexToken))
             .sink { [weak self] _ in
@@ -65,20 +67,19 @@ public final class PlexNowPlayingViewModel: ObservableObject {
             return
         }
 
-        // Evita reiniciar la misma tarea si las credenciales no cambiaron
         let creds = (urlStr, tok)
         if let last = lastBootstrapCredentials, last == creds, bootstrapTask != nil { return }
         lastBootstrapCredentials = creds
 
-        stopBootstrapLoop() // cancela si existía
+        stopBootstrapLoop()
         print("🧭 [VM] Bootstrap: armado. Esperando playback…")
 
         bootstrapTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled && !self.isPollingActive {
                 self.configureClientIfNeeded(urlStr: urlStr, token: tok)
-                await self.plex?.pollOnce() // toque ligero; si hay playback recibiremos NowPlaying
-                try? await Task.sleep(nanoseconds: 7_000_000_000) // 7s
+                await self.plex?.pollOnce() // “toque” ligero
+                try? await Task.sleep(nanoseconds: 7_000_000_000)
             }
         }
     }
@@ -102,7 +103,6 @@ public final class PlexNowPlayingViewModel: ObservableObject {
 
     // MARK: - API pública
 
-    /// Botón “Probar conexión / Reiniciar poller”
     public func startPlexPolling(baseURL: URL, token: String) {
         stopBootstrapLoop()
         let client = PlexClient(baseURL: baseURL, token: token, debugLogging: true)
@@ -129,12 +129,20 @@ public final class PlexNowPlayingViewModel: ObservableObject {
     private enum RefreshReason { case firstSeen, trackChange, resumePlay, forced }
 
     private func handleNowPlayingUpdate(now: NowPlaying?, paused: Bool) {
-        snapshotNowPlaying = now
+        // Actualizamos flags de reproducción
         isPaused = paused
+        hasActivePlayback = (now != nil && !paused)
 
-        guard let np = now else { return }
+        // Si no hay track → limpiar estado y permitir que otras vistas muestren calendario
+        guard let np = now else {
+            snapshotNowPlaying = nil
+            state = .idle
+            return
+        }
 
-        // Primer NowPlaying → inicia loop y apaga bootstrap
+        snapshotNowPlaying = np
+
+        // Si aún no teníamos loop, ya hay track → iniciar loop y apagar bootstrap
         if !isPollingActive {
             plex?.startPolling(interval: 5.0)
             isPollingActive = true
@@ -145,7 +153,7 @@ public final class PlexNowPlayingViewModel: ObservableObject {
         let albumKey = "\(np.artist)|\(np.album)"
         let firstTime = (lastAlbumKey == nil)
         let albumChanged = (albumKey != lastAlbumKey)
-        let resumed = (state == .loading && !paused)
+        let resumed = (!paused)
 
         lastAlbumKey = albumKey
 
@@ -171,6 +179,7 @@ public final class PlexNowPlayingViewModel: ObservableObject {
     // MARK: - Facts
 
     private func fetchFactsIfNeeded(for now: NowPlaying, reason: RefreshReason) async {
+        // Si está pausado y no es un refresh manual, evita pedir facts
         if isPaused && reason != .forced { return }
 
         let albumKey = "\(now.artist)|\(now.album)"
@@ -187,7 +196,7 @@ public final class PlexNowPlayingViewModel: ObservableObject {
             retriedForAlbum.remove(albumKey)
             state = .ready(facts)
         } else {
-            state = factsCache[albumKey].map { .ready($0) } ?? .error("Information not available")
+            state = factsCache[albumKey].map { .ready($0) } ?? .error("No se pudo obtener información")
         }
     }
 }
